@@ -1,0 +1,5 @@
+{
+  "globalDependencies": {
+    "pg-types/index": "registry:dt/pg-types/index#1.11.0+20161119044246"
+  }
+}
