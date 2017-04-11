@@ -1,7 +1,26 @@
 const express = require('express');
 const routing = require('./routing');
-
+const cors = require('cors');
 const app = express();
+
+app.use(cors({
+    origin: (origin, callback) => {
+        callback(null, true);
+    }
+}));
+
+app.get('/routing/route', (req, res, next) => {
+    var values = req.query;
+    console.log(values);    
+    let stops = values.stops.split(',');
+    routing.route(stops[0], stops[1])
+        .then(result => {
+            res.status(200).json(result);
+        })
+        .catch(reason => {
+            res.status(500).json(reason);
+        });
+});
 
 app.get('/routing/distance', (req, res, next) => {
     var values = req.query;
@@ -18,7 +37,7 @@ app.get('/routing/distance', (req, res, next) => {
 
 app.get('/routing/closest', (req, res, next) => {
     let values = req.query;
-    let geom = `POINT(${values.lat} ${values.lon})`;    
+    let geom = `POINT(${values.lon} ${values.lat})`;
     console.log('geom', geom);
     routing.closest(geom)
         .then(result => {

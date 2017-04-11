@@ -1,17 +1,23 @@
 const pool = require('./db');
 
-const feetPerMeter = 3.2808399;
-const feetPerMile = 5280;
-
-function toMiles(meters) {
-    return (feetPerMeter * meters / feetPerMile);
-}
-
-function distanceAsSql(a, b) {
+function distanceAsQuery(a, b) {
     let query = `SELECT seq, id1 AS node, id2 AS edge, cost FROM pgr_dijkstra(
         'SELECT fid as id, source, target, length as cost FROM "north-america".routing', 
         ${a}, ${b}, false, false
     )`;
+    return query;
+}
+
+function routeAsQuery(a, b) {
+    let query = `
+    SELECT seq, ST_AsText(R.geom) geom, cost 
+    FROM pgr_dijkstra(
+            'SELECT fid as id, source, target, length as cost FROM "north-america".routing', 
+            ${a}, ${b}, false, false
+        )
+    JOIN "north-america".routing R
+    ON R.fid=id2
+`;
     return query;
 }
 
@@ -24,7 +30,7 @@ function nearbyAsQuery(geom, limit, buffer = 0.0001) {
     limit = limit || 1;
     geom = `ST_GeomFromText('${geom}', 4326)`;
     let query = `
-    SELECT id, ST_Distance(the_geom, ${geom}) distance 
+    SELECT id, ST_AsText(the_geom) geom, ST_Distance(the_geom, ${geom}) distance
     FROM "north-america".routing_vertices_pgr
     WHERE ST_DWithin(the_geom, ${geom}, ${buffer})
     ORDER BY ST_Distance(the_geom, ${geom}) asc
@@ -32,21 +38,35 @@ function nearbyAsQuery(geom, limit, buffer = 0.0001) {
     return query;
 }
 
-function distance(a, b) {
-    //to run a query we just pass it to the pool
-    //after we're done nothing has to be taken care of
-    //we don't have to return any client to the pool or close a connection
+function route(a, b) {
     return new Promise((resolve, reject) => {
-        pool.query(distanceAsSql(4, 10), (err, res) => {
+        pool.query(routeAsQuery(a, b), (err, res) => {
+            if (err) {
+                reject('error running query', err);
+                return;
+            }
+
+            resolve({
+                route: res.rows.map(r => ({
+                    geom: r.geom,
+                    cost: r.cost
+                }))
+            });
+        });
+    });
+}
+
+function distance(a, b) {
+    return new Promise((resolve, reject) => {
+        pool.query(distanceAsQuery(a, b), (err, res) => {
             if (err) {
                 reject('error running query', err);
                 return;
             }
 
             let cost = res.rows.map(r => r.cost).reduce((a, b) => a + b);
-            let distance = toMiles(cost);
             resolve({
-                distance: distance
+                distance: cost
             });
         });
     });
@@ -54,21 +74,20 @@ function distance(a, b) {
 
 function closest(geom) {
     return new Promise((resolve, reject) => {
-        pool.query(nearbyAsQuery(geom, 1, 0.0001), (err, res) => {
+        pool.query(nearbyAsQuery(geom, 1, 0.1), (err, res) => {
             if (err) {
                 reject(err);
                 return;
             }
 
-            resolve({
-                ids: res.rows.map(r => r.id)
-            });
+            resolve(res.rows);
         });
     });
 }
 
 
 module.exports = {
+    route: route,
     distance: distance,
     closest: closest
 };
